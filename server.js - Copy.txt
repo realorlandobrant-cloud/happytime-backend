@@ -1,0 +1,29 @@
+const express = require("express");
+const cors = require("cors");
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+let videos = [];
+
+// GET videos
+app.get("/videos", (req, res) => {
+  res.json(videos);
+});
+
+// POST YouTube or direct video
+app.post("/videos", (req, res) => {
+  const { title, url } = req.body;
+
+  if (!url) {
+    return res.status(400).json({ error: "Missing URL" });
+  }
+
+  videos.push({ title: title || "UNTITLED", url });
+  res.json({ success: true });
+});
+
+app.listen(5000, () => {
+  console.log("🔥 SERVER RUNNING: http://localhost:5000 🔥");
+});
