@@ -1,23 +1,28 @@
-const cors = require("cors");
-
-app.use(cors({
-  origin: "*"
-}));
 const express = require("express");
 const cors = require("cors");
 const multer = require("multer");
 const path = require("path");
+const fs = require("fs");
 
 const app = express();
-const PORT = 5000;
 
-app.use(cors());
+// ✅ FIX: use environment PORT (REQUIRED for deployment)
+const PORT = process.env.PORT || 5000;
+
+// ✅ middleware
+app.use(cors({ origin: "*" }));
 app.use(express.json());
 
-// 📁 serve uploaded videos
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+// ✅ ensure uploads folder exists (prevents crash)
+const uploadDir = path.join(__dirname, "uploads");
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir);
+}
 
-// 🧠 in-memory storage (or replace with DB later)
+// 📁 serve uploaded videos
+app.use("/uploads", express.static(uploadDir));
+
+// 🧠 in-memory storage
 let videos = [];
 
 // 📦 multer setup
@@ -38,7 +43,7 @@ app.get("/videos", (req, res) => {
   res.json(videos);
 });
 
-// ✅ POST video via URL (your existing system)
+// ✅ POST video via URL
 app.post("/videos", (req, res) => {
   const { title, url } = req.body;
 
@@ -50,13 +55,16 @@ app.post("/videos", (req, res) => {
   res.json({ success: true });
 });
 
-// ✅ 🚀 DRAG & DROP UPLOAD ROUTE
+// ✅ 🚀 DRAG & DROP UPLOAD ROUTE (FIXED URL)
 app.post("/videos/upload", upload.single("video"), (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: "No file uploaded" });
   }
 
-  const videoUrl = `http://localhost:5000/uploads/${req.file.filename}`;
+  // ✅ dynamic base URL (works locally + deployed)
+  const baseUrl = req.protocol + "://" + req.get("host");
+
+  const videoUrl = `${baseUrl}/uploads/${req.file.filename}`;
 
   videos.push({
     title: req.file.originalname,
@@ -66,6 +74,7 @@ app.post("/videos/upload", upload.single("video"), (req, res) => {
   res.json({ success: true, url: videoUrl });
 });
 
+// ✅ START SERVER (FIXED)
 app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
