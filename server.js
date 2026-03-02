@@ -22,10 +22,21 @@ app.use("/uploads", express.static(uploadDir));
 let videos = [];
 
 // multer
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, "uploads/"),
-  filename: (req, file, cb) =>
-    cb(null, Date.now() + "-" + file.originalname),
+const { CloudinaryStorage } = require("multer-storage-cloudinary");
+const cloudinary = require("cloudinary").v2;
+
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
+const storage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    resource_type: "video",
+    folder: "happytime",
+  },
 });
 
 const upload = multer({ storage });
@@ -59,7 +70,7 @@ app.post("/videos/upload", upload.single("video"), (req, res) => {
   }
 
   const baseUrl = req.protocol + "://" + req.get("host");
-  const videoUrl = `${baseUrl}/uploads/${req.file.filename}`;
+  const videoUrl = req.file.path;
 
   videos.push({
     title: req.file.originalname,
