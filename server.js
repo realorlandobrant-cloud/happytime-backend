@@ -1,49 +1,47 @@
 const express = require("express");
 const cors = require("cors");
 const multer = require("multer");
-const path = require("path");
-const fs = require("fs");
 
 const app = express();
-
-// ✅ FIX: use environment PORT (REQUIRED for deployment)
 const PORT = process.env.PORT || 5000;
 
-// ✅ middleware
+// middleware
 app.use(cors({ origin: "*" }));
 app.use(express.json());
 
-// ✅ ensure uploads folder exists (prevents crash)
-const uploadDir = path.join(__dirname, "uploads");
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir);
+// ===== CLOUDINARY SETUP =====
+const cloudinary = require("cloudinary").v2;
+
+// only configure if env vars exist (prevents crash)
+if (
+  process.env.CLOUDINARY_CLOUD_NAME &&
+  process.env.CLOUDINARY_API_KEY &&
+  process.env.CLOUDINARY_API_SECRET
+) {
+  cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+  });
 }
 
-// 📁 serve uploaded videos
-app.use("/uploads", express.static(uploadDir));
+// ===== MULTER (TEMP STORAGE) =====
+const upload = multer({ dest: "temp/" });
 
-// 🧠 in-memory storage
+// ===== MEMORY STORAGE (TEMP DB) =====
 let videos = [];
 
-// 📦 multer setup
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, "uploads/");
-  },
-  filename: (req, file, cb) => {
-    const uniqueName = Date.now() + "-" + file.originalname;
-    cb(null, uniqueName);
-  },
+// ===== ROOT ROUTE (IMPORTANT FOR RENDER) =====
+app.get("/", (req, res) => {
+  res.send("Backend is running 🚀");
 });
 
-const upload = multer({ storage });
-
-// ✅ GET videos
+// ===== GET VIDEOS =====
 app.get("/videos", (req, res) => {
   res.json(videos);
 });
 
-// ✅ POST video via URL
+// ===== POST VIDEO URL =====
 app.post("/videos", (req, res) => {
   const { title, url } = req.body;
 
@@ -55,26 +53,41 @@ app.post("/videos", (req, res) => {
   res.json({ success: true });
 });
 
-// ✅ 🚀 DRAG & DROP UPLOAD ROUTE (FIXED URL)
-app.post("/videos/upload", upload.single("video"), (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ error: "No file uploaded" });
+// ===== UPLOAD VIDEO (CLOUDINARY) =====
+app.post("/videos/upload", upload.single("video"), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: "No file uploaded" });
+    }
+
+    // if cloudinary not configured
+    if (!cloudinary.config().cloud_name) {
+      return res.status(500).json({
+        error: "Cloudinary not configured",
+      });
+    }
+
+    // upload to cloudinary
+    const result = await cloudinary.uploader.upload(req.file.path, {
+      resource_type: "video",
+      folder: "happytime",
+    });
+
+    const videoUrl = result.secure_url;
+
+    videos.push({
+      title: req.file.originalname,
+      url: videoUrl,
+    });
+
+    res.json({ success: true, url: videoUrl });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Upload failed" });
   }
-
-  // ✅ dynamic base URL (works locally + deployed)
-  const baseUrl = req.protocol + "://" + req.get("host");
-
-  const videoUrl = `${baseUrl}/uploads/${req.file.filename}`;
-
-  videos.push({
-    title: req.file.originalname,
-    url: videoUrl,
-  });
-
-  res.json({ success: true, url: videoUrl });
 });
 
-// ✅ START SERVER (FIXED)
+// ===== START SERVER =====
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
