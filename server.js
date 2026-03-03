@@ -1,47 +1,64 @@
 const express = require("express");
 const cors = require("cors");
 const multer = require("multer");
+const fs = require("fs");
+const path = require("path");
+
+const { CloudinaryStorage } = require("multer-storage-cloudinary");
+const cloudinary = require("cloudinary").v2;
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// middleware
 app.use(cors({ origin: "*" }));
 app.use(express.json());
 
-// ===== CLOUDINARY SETUP =====
-const cloudinary = require("cloudinary").v2;
+// ✅ CLOUDINARY CONFIG
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
-// only configure if env vars exist (prevents crash)
-if (
-  process.env.CLOUDINARY_CLOUD_NAME &&
-  process.env.CLOUDINARY_API_KEY &&
-  process.env.CLOUDINARY_API_SECRET
-) {
-  cloudinary.config({
-    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-    api_key: process.env.CLOUDINARY_API_KEY,
-    api_secret: process.env.CLOUDINARY_API_SECRET,
-  });
-}
+// ✅ STORAGE (uploads go to Cloudinary)
+const storage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    resource_type: "video",
+    folder: "happytime",
+  },
+});
 
-// ===== MULTER (TEMP STORAGE) =====
-const upload = multer({ dest: "temp/" });
+const upload = multer({ storage });
 
-// ===== MEMORY STORAGE (TEMP DB) =====
-let videos = [];
+// ✅ FILE STORAGE (videos.json)
+const dataFile = path.join(__dirname, "videos.json");
 
-// ===== ROOT ROUTE (IMPORTANT FOR RENDER) =====
+const getVideos = () => {
+  try {
+    const data = fs.readFileSync(dataFile);
+    return JSON.parse(data);
+  } catch {
+    return [];
+  }
+};
+
+const saveVideos = (videos) => {
+  fs.writeFileSync(dataFile, JSON.stringify(videos, null, 2));
+};
+
+// ✅ ROOT ROUTE (fixes "Cannot GET /")
 app.get("/", (req, res) => {
   res.send("Backend is running 🚀");
 });
 
-// ===== GET VIDEOS =====
+// ✅ GET VIDEOS
 app.get("/videos", (req, res) => {
+  const videos = getVideos();
   res.json(videos);
 });
 
-// ===== POST VIDEO URL =====
+// ✅ POST VIDEO (URL)
 app.post("/videos", (req, res) => {
   const { title, url } = req.body;
 
@@ -49,45 +66,35 @@ app.post("/videos", (req, res) => {
     return res.status(400).json({ error: "Missing data" });
   }
 
+  const videos = getVideos();
   videos.push({ title, url });
+
+  saveVideos(videos);
+
   res.json({ success: true });
 });
 
-// ===== UPLOAD VIDEO (CLOUDINARY) =====
-app.post("/videos/upload", upload.single("video"), async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: "No file uploaded" });
-    }
-
-    // if cloudinary not configured
-    if (!cloudinary.config().cloud_name) {
-      return res.status(500).json({
-        error: "Cloudinary not configured",
-      });
-    }
-
-    // upload to cloudinary
-    const result = await cloudinary.uploader.upload(req.file.path, {
-      resource_type: "video",
-      folder: "happytime",
-    });
-
-    const videoUrl = result.secure_url;
-
-    videos.push({
-      title: req.file.originalname,
-      url: videoUrl,
-    });
-
-    res.json({ success: true, url: videoUrl });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Upload failed" });
+// ✅ UPLOAD VIDEO (DRAG & DROP)
+app.post("/videos/upload", upload.single("video"), (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: "No file uploaded" });
   }
+
+  const videoUrl = req.file.path; // Cloudinary URL
+
+  const videos = getVideos();
+
+  videos.push({
+    title: req.file.originalname,
+    url: videoUrl,
+  });
+
+  saveVideos(videos);
+
+  res.json({ success: true, url: videoUrl });
 });
 
-// ===== START SERVER =====
+// ✅ START SERVER
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
