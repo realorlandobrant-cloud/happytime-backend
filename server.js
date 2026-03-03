@@ -1,80 +1,90 @@
 const express = require("express");
 const cors = require("cors");
 const multer = require("multer");
-const path = require("path");
-const fs = require("fs");
+const { CloudinaryStorage } = require("multer-storage-cloudinary");
+const cloudinary = require("cloudinary").v2;
+const mongoose = require("mongoose");
 
 const app = express();
-
-// ✅ FIX: use environment PORT (REQUIRED for deployment)
 const PORT = process.env.PORT || 5000;
 
-// ✅ middleware
+// ✅ MIDDLEWARE
 app.use(cors({ origin: "*" }));
 app.use(express.json());
 
-// ✅ ensure uploads folder exists (prevents crash)
-const uploadDir = path.join(__dirname, "uploads");
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir);
-}
+// ✅ CONNECT TO MONGODB
+mongoose.connect(process.env.MONGO_URI)
+  .then(() => console.log("MongoDB Connected ✅"))
+  .catch(err => console.log("Mongo Error ❌", err));
 
-// 📁 serve uploaded videos
-app.use("/uploads", express.static(uploadDir));
+// ✅ VIDEO MODEL
+const videoSchema = new mongoose.Schema({
+  title: String,
+  url: String,
+});
 
-// 🧠 in-memory storage
-let videos = [];
+const Video = mongoose.model("Video", videoSchema);
 
-// 📦 multer setup
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, "uploads/");
-  },
-  filename: (req, file, cb) => {
-    const uniqueName = Date.now() + "-" + file.originalname;
-    cb(null, uniqueName);
+// ✅ CLOUDINARY CONFIG
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
+// ✅ STORAGE
+const storage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    resource_type: "video",
+    folder: "happytime",
   },
 });
 
 const upload = multer({ storage });
 
-// ✅ GET videos
-app.get("/videos", (req, res) => {
+// ✅ ROOT ROUTE
+app.get("/", (req, res) => {
+  res.send("Backend running 🚀");
+});
+
+// ✅ GET VIDEOS (FROM DATABASE)
+app.get("/videos", async (req, res) => {
+  const videos = await Video.find().sort({ _id: -1 });
   res.json(videos);
 });
 
-// ✅ POST video via URL
-app.post("/videos", (req, res) => {
+// ✅ POST VIDEO URL (SAVE TO DATABASE)
+app.post("/videos", async (req, res) => {
   const { title, url } = req.body;
 
   if (!title || !url) {
     return res.status(400).json({ error: "Missing data" });
   }
 
-  videos.push({ title, url });
+  const newVideo = new Video({ title, url });
+  await newVideo.save();
+
   res.json({ success: true });
 });
 
-// ✅ 🚀 DRAG & DROP UPLOAD ROUTE (FIXED URL)
-app.post("/videos/upload", upload.single("video"), (req, res) => {
+// ✅ UPLOAD VIDEO (CLOUDINARY + DATABASE)
+app.post("/videos/upload", upload.single("video"), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: "No file uploaded" });
   }
 
-  // ✅ dynamic base URL (works locally + deployed)
-  const baseUrl = req.protocol + "://" + req.get("host");
-
-  const videoUrl = `${baseUrl}/uploads/${req.file.filename}`;
-
-  videos.push({
+  const newVideo = new Video({
     title: req.file.originalname,
-    url: videoUrl,
+    url: req.file.path,
   });
 
-  res.json({ success: true, url: videoUrl });
+  await newVideo.save();
+
+  res.json({ success: true, url: req.file.path });
 });
 
-// ✅ START SERVER (FIXED)
+// ✅ START SERVER
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
