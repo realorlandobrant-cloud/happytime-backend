@@ -1,39 +1,87 @@
-import express from "express";
-import cors from "cors";
+const express = require("express");
+const cors = require("cors");
+const multer = require("multer");
+const { CloudinaryStorage } = require("multer-storage-cloudinary");
+const cloudinary = require("cloudinary").v2;
+const mongoose = require("mongoose");
 
 const app = express();
+const PORT = process.env.PORT || 5000;
 
-// ✅ REQUIRED for Render / Railway / etc
-const PORT = process.env.PORT || 3000;
-
-// ✅ Middleware
-app.use(cors({
-  origin: "*", // later you can restrict this
-}));
+// ✅ middleware
+app.use(cors({ origin: "*" }));
 app.use(express.json());
 
-// ✅ ROOT ROUTE (IMPORTANT for uptime checks)
+// ✅ MongoDB connect (NO deprecated options)
+mongoose.connect(process.env.MONGO_URI)
+  .then(() => console.log("MongoDB connected"))
+  .catch((err) => console.log(err));
+
+// ✅ schema
+const Video = mongoose.model("Video", {
+  title: String,
+  url: String,
+});
+
+// ✅ Cloudinary config
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
+// ✅ storage
+const storage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    resource_type: "video",
+    folder: "happytime",
+  },
+});
+
+const upload = multer({ storage });
+
+// ✅ ROOT (so your site doesn’t say “cannot get /”)
 app.get("/", (req, res) => {
-  res.send("Backend is LIVE");
+  res.send("Backend is running 🚀");
 });
 
-// ✅ HEALTH CHECK (your frontend should call this)
-app.get("/api/health", (req, res) => {
-  res.status(200).json({ status: "ok" });
+// ✅ GET videos
+app.get("/videos", async (req, res) => {
+  const vids = await Video.find().sort({ _id: -1 });
+  res.json(vids);
 });
 
-// ✅ TEST ROUTE
-app.get("/api/test", (req, res) => {
-  res.json({ message: "API working" });
+// ✅ POST URL video
+app.post("/videos", async (req, res) => {
+  const { title, url } = req.body;
+
+  if (!title || !url) {
+    return res.status(400).json({ error: "Missing data" });
+  }
+
+  await Video.create({ title, url });
+
+  res.json({ success: true });
 });
 
-// ❌ Catch errors cleanly (prevents internal server error crashes)
-app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({ error: "Something broke" });
+// ✅ UPLOAD video (drag + drop)
+app.post("/videos/upload", upload.single("video"), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: "No file uploaded" });
+  }
+
+  const videoUrl = req.file.path;
+
+  await Video.create({
+    title: req.file.originalname,
+    url: videoUrl,
+  });
+
+  res.json({ success: true, url: videoUrl });
 });
 
-// ✅ START SERVER (CRITICAL LINE)
-app.listen(PORT, "0.0.0.0", () => {
+// ✅ start server
+app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
